@@ -1,0 +1,13 @@
+services:
+  website:
+    build: .
+    image: asianwork
+    restart: always
+    container_name: asianwork
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./public:/app/public
+    ports:
+      - "3914:3914"

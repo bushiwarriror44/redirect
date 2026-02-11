@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+{% block title %}Redirect Admin{% endblock %}
+
+{% block body %}
+<div style="max-width: 1040px; margin: 32px auto; padding: 0 16px;">
+    <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;gap:12px;">
+        <div>
+            <h1 style="margin:0;font-size:24px;">Панель редиректов</h1>
+            <p style="margin:6px 0 0 0;color:#6b7280;">Создание ссылок, редиректов и просмотр переходов</p>
+        </div>
+        <a href="/admin/logout" style="text-decoration:none;padding:10px 14px;border:1px solid #e5e7eb;border-radius:8px;color:#111827;background:#fff;">Выйти</a>
+    </header>
+
+    <section style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:16px;">
+        <h2 style="margin:0 0 12px 0;font-size:18px;">Создать редирект</h2>
+        <form id="create-form" style="display:grid;grid-template-columns:1fr 220px auto;gap:10px;align-items:end;">
+            <label style="display:block;">
+                <span style="display:block;margin-bottom:6px;font-size:13px;color:#374151;">URL назначения</span>
+                <input id="target-url" type="url" placeholder="https://t.me/example или https://example.com" required style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;" />
+            </label>
+            <label style="display:block;">
+                <span style="display:block;margin-bottom:6px;font-size:13px;color:#374151;">Slug (опционально)</span>
+                <input id="slug" type="text" placeholder="my-link" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;" />
+            </label>
+            <button type="submit" style="padding:10px 14px;border:0;border-radius:8px;background:#111827;color:#fff;cursor:pointer;">Создать</button>
+        </form>
+        <p style="margin:10px 0 0 0;color:#6b7280;font-size:13px;">Если slug пустой, он будет сгенерирован автоматически.</p>
+    </section>
+
+    <section style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:12px;">
+            <h2 style="margin:0;font-size:18px;">Список редиректов</h2>
+            <button id="refresh-btn" type="button" style="padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;">Обновить</button>
+        </div>
+        <div style="overflow:auto;">
+            <table style="width:100%;border-collapse:collapse;min-width:880px;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:10px;">Slug</th>
+                        <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:10px;">Target URL</th>
+                        <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:10px;">Redirect URL</th>
+                        <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:10px;">Переходы</th>
+                        <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:10px;">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="redirects-body">
+                    <tr><td colspan="5" style="padding:12px;color:#6b7280;">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <div id="status-msg" style="margin-top:12px;color:#111827;"></div>
+</div>
+
+<script>
+const redirectsBody = document.getElementById('redirects-body');
+const statusMsg = document.getElementById('status-msg');
+const csrfToken = '{{ csrf_token() }}';
+
+function setStatus(message, isError = false) {
+    statusMsg.textContent = message || '';
+    statusMsg.style.color = isError ? '#dc2626' : '#111827';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text == null ? '' : String(text);
+    return div.innerHTML;
+}
+
+async function loadRedirects() {
+    try {
+        const response = await fetch('/admin/api/redirects', { credentials: 'same-origin' });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.message || 'Ошибка загрузки');
+        }
+        renderRows(data.redirects || []);
+        setStatus('');
+    } catch (error) {
+        redirectsBody.innerHTML = '<tr><td colspan="5" style="padding:12px;color:#dc2626;">Не удалось загрузить редиректы</td></tr>';
+        setStatus(error.message || 'Не удалось загрузить редиректы', true);
+    }
+}
+
+function renderRows(rows) {
+    if (!rows.length) {
+        redirectsBody.innerHTML = '<tr><td colspan="5" style="padding:12px;color:#6b7280;">Редиректов пока нет</td></tr>';
+        return;
+    }
+
+    redirectsBody.innerHTML = rows.map((row) => (
+        '<tr>' +
+            '<td style="padding:10px;border-bottom:1px solid #f3f4f6;"><code>' + escapeHtml(row.slug) + '</code></td>' +
+            '<td style="padding:10px;border-bottom:1px solid #f3f4f6;max-width:280px;word-break:break-all;">' + escapeHtml(row.target_url) + '</td>' +
+            '<td style="padding:10px;border-bottom:1px solid #f3f4f6;max-width:280px;word-break:break-all;">' + escapeHtml(row.redirect_url) + '</td>' +
+            '<td style="padding:10px;border-bottom:1px solid #f3f4f6;">' + escapeHtml(row.click_count) + '</td>' +
+            '<td style="padding:10px;border-bottom:1px solid #f3f4f6;display:flex;gap:8px;flex-wrap:wrap;">' +
+                '<button type="button" onclick="copyUrl(\'' + escapeHtml(row.redirect_url) + '\')" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;">Копировать</button>' +
+                '<button type="button" onclick="editRedirect(' + row.id + ', \'' + escapeHtml(row.slug) + '\', \'' + escapeHtml(row.target_url) + '\')" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;">Изменить</button>' +
+                '<button type="button" onclick="deleteRedirect(' + row.id + ')" style="padding:6px 10px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#b91c1c;cursor:pointer;">Удалить</button>' +
+            '</td>' +
+        '</tr>'
+    )).join('');
+}
+
+async function createRedirect(event) {
+    event.preventDefault();
+    const targetUrl = document.getElementById('target-url').value.trim();
+    const slug = document.getElementById('slug').value.trim();
+
+    try {
+        const response = await fetch('/admin/api/redirects', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({ target_url: targetUrl, slug }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Ошибка создания');
+        }
+        document.getElementById('create-form').reset();
+        await loadRedirects();
+        setStatus('Редирект создан');
+    } catch (error) {
+        setStatus(error.message || 'Ошибка создания', true);
+    }
+}
+
+async function editRedirect(id, currentSlug, currentTargetUrl) {
+    const slug = prompt('Новый slug:', currentSlug);
+    if (slug === null) return;
+    const targetUrl = prompt('Новый target URL:', currentTargetUrl);
+    if (targetUrl === null) return;
+
+    try {
+        const response = await fetch('/admin/api/redirects/' + id, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({
+                slug: slug.trim(),
+                target_url: targetUrl.trim(),
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Ошибка изменения');
+        }
+        await loadRedirects();
+        setStatus('Редирект обновлен');
+    } catch (error) {
+        setStatus(error.message || 'Ошибка изменения', true);
+    }
+}
+
+async function deleteRedirect(id) {
+    if (!confirm('Удалить этот редирект?')) return;
+    try {
+        const response = await fetch('/admin/api/redirects/' + id, {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: { 'X-CSRFToken': csrfToken },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Ошибка удаления');
+        }
+        await loadRedirects();
+        setStatus('Редирект удален');
+    } catch (error) {
+        setStatus(error.message || 'Ошибка удаления', true);
+    }
+}
+
+function copyUrl(url) {
+    navigator.clipboard.writeText(url)
+        .then(() => setStatus('Ссылка скопирована'))
+        .catch(() => setStatus('Не удалось скопировать ссылку', true));
+}
+
+document.getElementById('create-form').addEventListener('submit', createRedirect);
+document.getElementById('refresh-btn').addEventListener('click', loadRedirects);
+loadRedirects();
+</script>
+{% endblock %}
