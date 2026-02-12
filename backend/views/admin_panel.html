@@ -12,6 +12,19 @@
     </header>
 
     <section style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:16px;">
+        <h2 style="margin:0 0 12px 0;font-size:18px;">Корневой редирект ( / )</h2>
+        <form id="root-form" style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:end;">
+            <label style="display:block;">
+                <span style="display:block;margin-bottom:6px;font-size:13px;color:#374151;">URL для https://domain/</span>
+                <input id="root-target-url" type="url" placeholder="https://t.me/example или https://example.com" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;" />
+            </label>
+            <button type="submit" style="padding:10px 14px;border:0;border-radius:8px;background:#111827;color:#fff;cursor:pointer;">Сохранить</button>
+            <button id="disable-root-btn" type="button" style="padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;">Отключить</button>
+        </form>
+        <p id="root-meta" style="margin:10px 0 0 0;color:#6b7280;font-size:13px;">Загрузка...</p>
+    </section>
+
+    <section style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:16px;">
         <h2 style="margin:0 0 12px 0;font-size:18px;">Создать редирект</h2>
         <form id="create-form" style="display:grid;grid-template-columns:1fr 220px auto;gap:10px;align-items:end;">
             <label style="display:block;">
@@ -56,6 +69,7 @@
 const redirectsBody = document.getElementById('redirects-body');
 const statusMsg = document.getElementById('status-msg');
 const csrfToken = '{{ csrf_token() }}';
+const rootMeta = document.getElementById('root-meta');
 
 function setStatus(message, isError = false) {
     statusMsg.textContent = message || '';
@@ -66,6 +80,56 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text == null ? '' : String(text);
     return div.innerHTML;
+}
+
+async function loadRootRedirect() {
+    try {
+        const response = await fetch('/admin/api/root-redirect', { credentials: 'same-origin' });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Ошибка загрузки root redirect');
+        }
+        const rootRedirect = data.root_redirect || {};
+        document.getElementById('root-target-url').value = rootRedirect.target_url || '';
+        const statusText = rootRedirect.enabled ? 'включен' : 'выключен';
+        rootMeta.textContent = 'Статус: ' + statusText + ' | Переходов: ' + (rootRedirect.click_count || 0);
+    } catch (error) {
+        rootMeta.textContent = 'Ошибка загрузки root redirect';
+        setStatus(error.message || 'Ошибка загрузки root redirect', true);
+    }
+}
+
+async function sendRootRedirect(targetUrl) {
+    try {
+        const response = await fetch('/admin/api/root-redirect', {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({ target_url: targetUrl }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Ошибка сохранения root redirect');
+        }
+        await loadRootRedirect();
+        setStatus(targetUrl ? 'Корневой редирект сохранен' : 'Корневой редирект отключен');
+    } catch (error) {
+        setStatus(error.message || 'Ошибка сохранения root redirect', true);
+    }
+}
+
+async function saveRootRedirect(event) {
+    event.preventDefault();
+    const targetUrl = document.getElementById('root-target-url').value.trim();
+    await sendRootRedirect(targetUrl);
+}
+
+async function disableRootRedirect() {
+    document.getElementById('root-target-url').value = '';
+    await sendRootRedirect('');
 }
 
 async function loadRedirects() {
@@ -188,6 +252,9 @@ function copyUrl(url) {
 
 document.getElementById('create-form').addEventListener('submit', createRedirect);
 document.getElementById('refresh-btn').addEventListener('click', loadRedirects);
+document.getElementById('root-form').addEventListener('submit', saveRootRedirect);
+document.getElementById('disable-root-btn').addEventListener('click', disableRootRedirect);
+loadRootRedirect();
 loadRedirects();
 </script>
 {% endblock %}

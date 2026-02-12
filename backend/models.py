@@ -14,5 +14,12 @@ class RedirectLink(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class RootRedirect(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    target_url = db.Column(db.Text, nullable=True)
+    click_count = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 def init_all_models():
     db.create_all()

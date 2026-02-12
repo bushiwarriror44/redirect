@@ -18,7 +18,7 @@ from flask import (
     url_for,
 )
 
-from models import RedirectLink, db
+from models import RedirectLink, RootRedirect, db
 
 admin_bp = Blueprint("admin", __name__)
 security_logger = logging.getLogger("security")
@@ -73,6 +73,26 @@ def serialize_redirect(link):
     }
 
 
+def get_or_create_root_redirect():
+    root_redirect = RootRedirect.query.get(1)
+    if root_redirect:
+        return root_redirect
+
+    root_redirect = RootRedirect(id=1, target_url=None, click_count=0)
+    db.session.add(root_redirect)
+    db.session.commit()
+    return root_redirect
+
+
+def serialize_root_redirect(root_redirect):
+    return {
+        "target_url": root_redirect.target_url,
+        "click_count": root_redirect.click_count,
+        "enabled": bool(root_redirect.target_url),
+        "updated_at": root_redirect.updated_at.isoformat() if root_redirect.updated_at else None,
+    }
+
+
 @admin_bp.route("/admin-static/<path:filename>")
 def admin_static(filename):
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -123,6 +143,29 @@ def admin_panel():
 def admin_logout():
     session.pop("admin_logged_in", None)
     return redirect(url_for("admin.admin_login"))
+
+
+@admin_bp.route("/admin/api/root-redirect", methods=["GET"])
+@require_login
+def get_root_redirect():
+    root_redirect = get_or_create_root_redirect()
+    return jsonify({"success": True, "root_redirect": serialize_root_redirect(root_redirect)})
+
+
+@admin_bp.route("/admin/api/root-redirect", methods=["PUT"])
+@require_login
+def update_root_redirect():
+    data = request.get_json(silent=True) or {}
+    target_url = (data.get("target_url") or "").strip()
+
+    if target_url and not is_valid_target_url(target_url):
+        return jsonify({"success": False, "message": "Укажите корректный URL с http:// или https://"}), 400
+
+    root_redirect = get_or_create_root_redirect()
+    root_redirect.target_url = target_url or None
+    db.session.commit()
+    security_logger.info("Root redirect updated enabled=%s ip=%s", bool(root_redirect.target_url), request.remote_addr)
+    return jsonify({"success": True, "root_redirect": serialize_root_redirect(root_redirect)})
 
 
 @admin_bp.route("/admin/api/redirects", methods=["GET"])
@@ -210,3 +253,13 @@ def handle_redirect(slug):
     link.click_count += 1
     db.session.commit()
     return redirect(link.target_url, code=302)
+
+
+@admin_bp.route("/", methods=["GET"])
+def handle_root_redirect():
+    root_redirect = RootRedirect.query.get(1)
+    if root_redirect and root_redirect.target_url:
+        root_redirect.click_count += 1
+        db.session.commit()
+        return redirect(root_redirect.target_url, code=302)
+    return "Root redirect is not configured", 404
